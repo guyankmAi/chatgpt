@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>报告/文档审查助手</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>报告、文档审查助手</h1>
+    <p class="desc">支持上传报告与审查依据，调用 DeepSeek 对条款逐条审查，并导出 Word 审查报告。</p>
+
+    <section class="card">
+      <h2>1) DeepSeek 配置</h2>
+      <div class="grid">
+        <label>API Key
+          <input id="apiKey" type="password" placeholder="sk-..." />
+        </label>
+        <label>Base URL
+          <input id="baseUrl" type="text" value="https://api.deepseek.com/v1" />
+        </label>
+        <label>模型
+          <select id="model">
+            <option value="deepseek-chat">deepseek-chat (DeepSeek-V3)</option>
+            <option value="deepseek-reasoner">deepseek-reasoner (DeepSeek-R1)</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) 上传材料</h2>
+      <label>待审查报告（可多选，支持 .txt/.md/.pdf/.docx/.doc）
+        <input id="reportFiles" type="file" multiple />
+      </label>
+      <label>审查标准/审查意见文件（可多选）
+        <input id="standardFiles" type="file" multiple />
+      </label>
+      <label>补充审查要求（可粘贴）
+        <textarea id="standardText" rows="5" placeholder="例如：按《交通影响评价技术标准》审查..."></textarea>
+      </label>
+    </section>
+
+    <section class="card actions">
+      <button id="runBtn">开始审查</button>
+      <button id="downloadBtn" disabled>下载 Word 审查报告</button>
+    </section>
+
+    <section class="card">
+      <h2>3) 审查结果</h2>
+      <pre id="log"></pre>
+      <div id="tableWrap"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
