@@ -1,0 +1,10 @@
+{
+  "name": "report-review-assistant",
+  "version": "1.0.0",
+  "description": "HTML report/document review assistant using DeepSeek API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  }
+}
