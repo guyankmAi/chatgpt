@@ -5,39 +5,107 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>城市暴雨洪涝模拟系统</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f2f6fb; color: #1f2937; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
-    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    h1 { margin: 0 0 12px; font-size: 26px; }
-    textarea { width: 100%; min-height: 170px; font-family: monospace; padding: 8px; }
-    button { background: #0b66ff; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
-    button.secondary { background: #6b7280; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .risk-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
-    .risk-item { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; }
-    .high { border-color: #dc2626; background: #fef2f2; }
-    .mid { border-color: #d97706; background: #fffbeb; }
-    .low { border-color: #16a34a; background: #f0fdf4; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th,td { border: 1px solid #e5e7eb; padding: 6px; font-size: 13px; text-align: center; }
-    .hint { color: #4b5563; font-size: 13px; }
+    :root {
+      --bg: #eef3fb;
+      --card: #ffffff;
+      --line: #dbe4f0;
+      --text: #1f2937;
+      --sub: #4b5563;
+      --blue: #0b66ff;
+      --red: #dc2626;
+      --orange: #d97706;
+      --green: #15803d;
+    }
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 18px; }
+    .card { background: var(--card); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); padding: 16px; margin-bottom: 14px; }
+    h1 { margin: 0 0 8px; }
+    h2 { margin: 0 0 10px; font-size: 20px; }
+    h3 { margin: 0 0 8px; }
+    .hint { color: var(--sub); font-size: 13px; }
     .ok { color: #047857; }
     .err { color: #b91c1c; }
-    .mono { font-family: monospace; white-space: pre-wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; color: #fff; background: var(--blue); }
+    button.secondary { background: #6b7280; }
+    button.warn { background: #b45309; }
+    button.danger { background: #b91c1c; }
+    input[type="number"], input[type="text"], textarea { border: 1px solid var(--line); border-radius: 6px; padding: 6px; width: 100%; box-sizing: border-box; }
+    textarea { min-height: 90px; font-family: monospace; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid var(--line); padding: 6px; text-align: center; font-size: 13px; }
+    th { background: #f7f9fd; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .risk-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
+    .risk-item { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+    .high { background: #fef2f2; border-color: #f8b4b4; }
+    .mid { background: #fffbeb; border-color: #f6d28f; }
+    .low { background: #f0fdf4; border-color: #99e4b4; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; font-size: 12px; background: #f8fafc; padding: 10px; border-radius: 8px; border:1px solid var(--line); }
+    .anim-box { border:1px solid var(--line); border-radius: 8px; padding: 10px; background: #f8fafc; }
+    .bar { height: 14px; border-radius: 8px; background: #e5e7eb; overflow: hidden; }
+    .bar > div { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); }
+    .bar.over > div { background: linear-gradient(90deg, #dc2626, #f87171); }
+    @media (max-width: 900px){ .grid2 { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>城市暴雨洪涝模拟系统（专业版演示）</h1>
-    <p class="hint">支持两种方式：① 上传 JSON 配置；② 直接在文本框输入/修改配置并运行模拟。</p>
+    <h1>城市暴雨洪涝模拟系统（专业版）</h1>
+    <p class="hint">支持 <b>表格参数输入</b>、<b>JSON 上传</b>、<b>动画模拟</b>、<b>报告预览</b>。</p>
     <div class="row">
       <input type="file" id="jsonFile" accept="application/json" />
       <button class="secondary" id="loadSampleBtn">载入内置样例</button>
       <button id="runBtn">开始模拟</button>
+      <button class="warn" id="syncJsonBtn">参数表 → JSON</button>
+      <button class="secondary" id="syncTableBtn">JSON → 参数表</button>
     </div>
     <p id="status" class="hint">等待输入...</p>
-    <textarea id="jsonInput"></textarea>
+  </div>
+
+  <div class="card">
+    <h2>参数说明（专业版）</h2>
+    <table>
+      <thead><tr><th>参数</th><th>含义</th><th>单位/范围</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td>step_minutes</td><td>时间步长</td><td>分钟，&gt;0</td><td>5~15 分钟常用于短历时暴雨分析</td></tr>
+        <tr><td>capacity_m3_s</td><td>管道过流能力</td><td>m³/s，&gt;0</td><td>建议按设计断面或校核流量填写</td></tr>
+        <tr><td>area_km2</td><td>汇水面积</td><td>km²，&gt;0</td><td>建议按分区地形与排水分界精细划分</td></tr>
+        <tr><td>runoff_coefficient</td><td>径流系数 C</td><td>0~1</td><td>硬化区可取 0.7~0.95，绿地较低</td></tr>
+        <tr><td>rainfall_series_mm_h</td><td>降雨过程线</td><td>mm/h，数组</td><td>应覆盖暴雨起涨-峰值-回落全过程</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card grid2">
+    <div>
+      <h2>表格参数输入</h2>
+      <div class="row" style="margin-bottom:6px">
+        <label>时间步长(分钟):</label>
+        <input id="stepInput" type="number" min="1" value="10" style="width:100px" />
+      </div>
+
+      <h3>管道参数（pipes）</h3>
+      <table id="pipesTable"><thead><tr><th>name</th><th>capacity_m3_s</th><th>操作</th></tr></thead><tbody></tbody></table>
+      <div class="row" style="margin-top:6px"><button class="secondary" id="addPipeBtn">新增管道</button></div>
+
+      <h3 style="margin-top:10px">汇水区参数（catchments）</h3>
+      <table id="catchmentsTable"><thead><tr><th>name</th><th>area_km2</th><th>runoff_coefficient</th><th>pipe_name</th><th>操作</th></tr></thead><tbody></tbody></table>
+      <div class="row" style="margin-top:6px"><button class="secondary" id="addCatchBtn">新增汇水区</button></div>
+
+      <h3 style="margin-top:10px">降雨过程（rainfall_series_mm_h）</h3>
+      <p class="hint">用英文逗号分隔，例如：8,12,18,35,55</p>
+      <textarea id="rainfallInput"></textarea>
+    </div>
+
+    <div>
+      <h2>JSON 输入 / 上传</h2>
+      <textarea id="jsonInput"></textarea>
+      <p class="hint">可直接粘贴 JSON；或先在左侧表格维护参数，再点击“参数表 → JSON”。</p>
+      <h2>自动生成报告（Markdown）</h2>
+      <div id="reportPreview" class="mono"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -46,13 +114,20 @@
   </div>
 
   <div class="card">
-    <h2>时序结果</h2>
-    <div id="tableWrap"></div>
+    <h2>动画模拟</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="playBtn">播放动画</button>
+      <button class="secondary" id="pauseBtn">暂停</button>
+      <label>帧间隔(ms):</label>
+      <input id="intervalInput" type="number" min="100" step="100" value="500" style="width:120px" />
+      <span id="frameLabel" class="hint">暂无结果</span>
+    </div>
+    <div id="animBox" class="anim-box"></div>
   </div>
 
   <div class="card">
-    <h2>自动生成报告（Markdown）</h2>
-    <div id="reportPreview" class="mono"></div>
+    <h2>时序结果</h2>
+    <div id="tableWrap"></div>
   </div>
 </div>
 
@@ -73,16 +148,81 @@ const sampleConfig = {
   rainfall_series_mm_h:[8,12,18,35,55,82,96,72,48,30,16,10]
 };
 
-const input = document.getElementById('jsonInput');
 const statusEl = document.getElementById('status');
-const riskCards = document.getElementById('riskCards');
-const tableWrap = document.getElementById('tableWrap');
+const jsonInput = document.getElementById('jsonInput');
 const reportPreview = document.getElementById('reportPreview');
-input.value = JSON.stringify(sampleConfig, null, 2);
+const tableWrap = document.getElementById('tableWrap');
+const riskCards = document.getElementById('riskCards');
+const animBox = document.getElementById('animBox');
+const frameLabel = document.getElementById('frameLabel');
+let currentResults = null;
+let animTimer = null;
+let animIndex = 0;
 
 function setStatus(msg, ok=true){
   statusEl.textContent = msg;
   statusEl.className = ok ? 'hint ok' : 'hint err';
+}
+
+function createCellInput(value, type='text', min=''){
+  const input = document.createElement('input');
+  input.type = type;
+  if (min !== '') input.min = min;
+  input.value = value;
+  return input;
+}
+
+function addPipeRow(pipe={name:'', capacity_m3_s:1.0}){
+  const tr = document.createElement('tr');
+  const name = createCellInput(pipe.name, 'text');
+  const cap = createCellInput(pipe.capacity_m3_s, 'number', '0.001');
+  tr.innerHTML = '<td></td><td></td><td><button class="danger">删除</button></td>';
+  tr.children[0].appendChild(name);
+  tr.children[1].appendChild(cap);
+  tr.querySelector('button').onclick = () => tr.remove();
+  document.querySelector('#pipesTable tbody').appendChild(tr);
+}
+
+function addCatchRow(c={name:'', area_km2:0.1, runoff_coefficient:0.7, pipe_name:''}){
+  const tr = document.createElement('tr');
+  const name = createCellInput(c.name, 'text');
+  const area = createCellInput(c.area_km2, 'number', '0.0001');
+  const coef = createCellInput(c.runoff_coefficient, 'number', '0'); coef.max = '1'; coef.step = '0.01';
+  const pipe = createCellInput(c.pipe_name, 'text');
+  tr.innerHTML = '<td></td><td></td><td></td><td></td><td><button class="danger">删除</button></td>';
+  tr.children[0].appendChild(name);
+  tr.children[1].appendChild(area);
+  tr.children[2].appendChild(coef);
+  tr.children[3].appendChild(pipe);
+  tr.querySelector('button').onclick = () => tr.remove();
+  document.querySelector('#catchmentsTable tbody').appendChild(tr);
+}
+
+function tableToConfig(){
+  const step = Number(document.getElementById('stepInput').value);
+  const pipes = [...document.querySelectorAll('#pipesTable tbody tr')].map(tr => ({
+    name: tr.children[0].querySelector('input').value.trim(),
+    capacity_m3_s: Number(tr.children[1].querySelector('input').value)
+  }));
+  const catchments = [...document.querySelectorAll('#catchmentsTable tbody tr')].map(tr => ({
+    name: tr.children[0].querySelector('input').value.trim(),
+    area_km2: Number(tr.children[1].querySelector('input').value),
+    runoff_coefficient: Number(tr.children[2].querySelector('input').value),
+    pipe_name: tr.children[3].querySelector('input').value.trim(),
+  }));
+  const rainfall = document.getElementById('rainfallInput').value
+    .split(',').map(x => Number(x.trim())).filter(x => !Number.isNaN(x));
+
+  return {step_minutes: step, pipes, catchments, rainfall_series_mm_h: rainfall};
+}
+
+function configToTable(config){
+  document.getElementById('stepInput').value = config.step_minutes ?? 10;
+  document.querySelector('#pipesTable tbody').innerHTML = '';
+  document.querySelector('#catchmentsTable tbody').innerHTML = '';
+  (config.pipes || []).forEach(addPipeRow);
+  (config.catchments || []).forEach(addCatchRow);
+  document.getElementById('rainfallInput').value = (config.rainfall_series_mm_h || []).join(',');
 }
 
 function riskClass(level){ return level === '高' ? 'high' : (level === '中' ? 'mid':'low'); }
@@ -92,7 +232,7 @@ function renderRisk(summary){
   summary.forEach(item => {
     const div = document.createElement('div');
     div.className = 'risk-item ' + riskClass(item.risk_level);
-    div.innerHTML = `<b>${item.pipe}</b><br>能力: ${item.capacity_m3_s.toFixed(2)} m3/s<br>峰值负载: ${item.peak_utilization_pct.toFixed(1)}%<br>峰值溢流: ${item.peak_overflow_m3_s.toFixed(2)} m3/s<br>风险等级: <b>${item.risk_level}</b>`;
+    div.innerHTML = `<b>${item.pipe}</b><br>能力: ${item.capacity_m3_s.toFixed(2)} m³/s<br>峰值负载: ${item.peak_utilization_pct.toFixed(1)}%<br>峰值溢流: ${item.peak_overflow_m3_s.toFixed(2)} m³/s<br>风险等级: <b>${item.risk_level}</b>`;
     riskCards.appendChild(div);
   });
 }
@@ -113,38 +253,105 @@ function renderTable(payload){
   tableWrap.innerHTML = html;
 }
 
-document.getElementById('loadSampleBtn').onclick = () => {
-  input.value = JSON.stringify(sampleConfig, null, 2);
-  setStatus('已载入内置样例，可直接运行。');
+function renderAnimationFrame(){
+  if (!currentResults) return;
+  const frame = currentResults.results[animIndex];
+  frameLabel.textContent = `帧 ${animIndex+1}/${currentResults.results.length} | 时间 ${frame.time_min} min | 降雨 ${frame.rainfall_mm_h.toFixed(1)} mm/h`;
+  let html = '';
+  currentResults.pipe_names.forEach(name => {
+    const util = frame.utilization_by_pipe[name];
+    const inflow = frame.inflow_by_pipe[name];
+    const overflow = frame.overflow_by_pipe[name];
+    const pct = Math.min(util, 200);
+    const overClass = util > 100 ? 'over' : '';
+    html += `<div style="margin-bottom:10px"><b>${name}</b> | 入流 ${inflow.toFixed(2)} m³/s | 溢流 ${overflow.toFixed(2)} m³/s | 负载 ${util.toFixed(1)}%` +
+            `<div class="bar ${overClass}"><div style="width:${pct/2}%"></div></div></div>`;
+  });
+  animBox.innerHTML = html;
+}
+
+function playAnimation(){
+  if (!currentResults) return setStatus('请先运行模拟。', false);
+  if (animTimer) clearInterval(animTimer);
+  const interval = Math.max(100, Number(document.getElementById('intervalInput').value || 500));
+  renderAnimationFrame();
+  animTimer = setInterval(() => {
+    animIndex = (animIndex + 1) % currentResults.results.length;
+    renderAnimationFrame();
+  }, interval);
+}
+
+function pauseAnimation(){
+  if (animTimer) clearInterval(animTimer);
+  animTimer = null;
+}
+
+document.getElementById('addPipeBtn').onclick = () => addPipeRow({name:'新管道', capacity_m3_s:1.0});
+document.getElementById('addCatchBtn').onclick = () => addCatchRow({name:'新汇水区', area_km2:0.1, runoff_coefficient:0.7, pipe_name:''});
+
+document.getElementById('syncJsonBtn').onclick = () => {
+  const config = tableToConfig();
+  jsonInput.value = JSON.stringify(config, null, 2);
+  setStatus('已从参数表同步到 JSON。');
+};
+
+document.getElementById('syncTableBtn').onclick = () => {
+  try {
+    const config = JSON.parse(jsonInput.value);
+    configToTable(config);
+    setStatus('已从 JSON 同步到参数表。');
+  } catch (e) {
+    setStatus('JSON 解析失败：' + e.message, false);
+  }
 };
 
 document.getElementById('jsonFile').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   const text = await file.text();
-  input.value = text;
-  setStatus(`已加载文件: ${file.name}`);
+  jsonInput.value = text;
+  try {
+    configToTable(JSON.parse(text));
+    setStatus(`已加载文件并同步参数表: ${file.name}`);
+  } catch {
+    setStatus(`已加载文件 ${file.name}，但 JSON 无法同步到参数表`, false);
+  }
 });
+
+document.getElementById('loadSampleBtn').onclick = () => {
+  jsonInput.value = JSON.stringify(sampleConfig, null, 2);
+  configToTable(sampleConfig);
+  setStatus('已载入样例参数。');
+};
 
 document.getElementById('runBtn').onclick = async () => {
   try {
-    const config = JSON.parse(input.value);
+    const config = JSON.parse(jsonInput.value);
     setStatus('正在模拟...');
     const res = await fetch('/simulate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
       body: JSON.stringify(config)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '模拟失败');
+    currentResults = data;
+    animIndex = 0;
     renderRisk(data.risk_summary);
     renderTable(data);
     reportPreview.textContent = data.report_markdown;
+    renderAnimationFrame();
     setStatus('模拟完成。');
-  } catch (err) {
-    setStatus('错误: ' + err.message, false);
+  } catch (e) {
+    setStatus('错误: ' + e.message, false);
   }
 };
+
+document.getElementById('playBtn').onclick = playAnimation;
+document.getElementById('pauseBtn').onclick = pauseAnimation;
+
+jsonInput.value = JSON.stringify(sampleConfig, null, 2);
+configToTable(sampleConfig);
 </script>
 </body>
 </html>
