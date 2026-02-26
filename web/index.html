@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>城市暴雨洪涝模拟系统</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f2f6fb; color: #1f2937; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h1 { margin: 0 0 12px; font-size: 26px; }
+    textarea { width: 100%; min-height: 170px; font-family: monospace; padding: 8px; }
+    button { background: #0b66ff; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+    button.secondary { background: #6b7280; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .risk-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
+    .risk-item { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; }
+    .high { border-color: #dc2626; background: #fef2f2; }
+    .mid { border-color: #d97706; background: #fffbeb; }
+    .low { border-color: #16a34a; background: #f0fdf4; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th,td { border: 1px solid #e5e7eb; padding: 6px; font-size: 13px; text-align: center; }
+    .hint { color: #4b5563; font-size: 13px; }
+    .ok { color: #047857; }
+    .err { color: #b91c1c; }
+    .mono { font-family: monospace; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>城市暴雨洪涝模拟系统（专业版演示）</h1>
+    <p class="hint">支持两种方式：① 上传 JSON 配置；② 直接在文本框输入/修改配置并运行模拟。</p>
+    <div class="row">
+      <input type="file" id="jsonFile" accept="application/json" />
+      <button class="secondary" id="loadSampleBtn">载入内置样例</button>
+      <button id="runBtn">开始模拟</button>
+    </div>
+    <p id="status" class="hint">等待输入...</p>
+    <textarea id="jsonInput"></textarea>
+  </div>
+
+  <div class="card">
+    <h2>风险总览</h2>
+    <div id="riskCards" class="risk-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>时序结果</h2>
+    <div id="tableWrap"></div>
+  </div>
+
+  <div class="card">
+    <h2>自动生成报告（Markdown）</h2>
+    <div id="reportPreview" class="mono"></div>
+  </div>
+</div>
+
+<script>
+const sampleConfig = {
+  step_minutes: 10,
+  pipes: [
+    {name:"P1_主干管", capacity_m3_s:2.6},
+    {name:"P2_支管", capacity_m3_s:1.3},
+    {name:"P3_老旧片区管", capacity_m3_s:0.9}
+  ],
+  catchments: [
+    {name:"商业区", area_km2:0.55, runoff_coefficient:0.85, pipe_name:"P1_主干管"},
+    {name:"居住区", area_km2:0.42, runoff_coefficient:0.65, pipe_name:"P2_支管"},
+    {name:"老城区", area_km2:0.30, runoff_coefficient:0.78, pipe_name:"P3_老旧片区管"},
+    {name:"公园低洼区", area_km2:0.18, runoff_coefficient:0.55, pipe_name:"P3_老旧片区管"}
+  ],
+  rainfall_series_mm_h:[8,12,18,35,55,82,96,72,48,30,16,10]
+};
+
+const input = document.getElementById('jsonInput');
+const statusEl = document.getElementById('status');
+const riskCards = document.getElementById('riskCards');
+const tableWrap = document.getElementById('tableWrap');
+const reportPreview = document.getElementById('reportPreview');
+input.value = JSON.stringify(sampleConfig, null, 2);
+
+function setStatus(msg, ok=true){
+  statusEl.textContent = msg;
+  statusEl.className = ok ? 'hint ok' : 'hint err';
+}
+
+function riskClass(level){ return level === '高' ? 'high' : (level === '中' ? 'mid':'low'); }
+
+function renderRisk(summary){
+  riskCards.innerHTML = '';
+  summary.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'risk-item ' + riskClass(item.risk_level);
+    div.innerHTML = `<b>${item.pipe}</b><br>能力: ${item.capacity_m3_s.toFixed(2)} m3/s<br>峰值负载: ${item.peak_utilization_pct.toFixed(1)}%<br>峰值溢流: ${item.peak_overflow_m3_s.toFixed(2)} m3/s<br>风险等级: <b>${item.risk_level}</b>`;
+    riskCards.appendChild(div);
+  });
+}
+
+function renderTable(payload){
+  const {pipe_names, results} = payload;
+  let html = '<table><thead><tr><th>时间(min)</th><th>降雨(mm/h)</th>';
+  pipe_names.forEach(p => html += `<th>${p}<br>入流/溢流/负载%</th>`);
+  html += '</tr></thead><tbody>';
+  results.forEach(r => {
+    html += `<tr><td>${r.time_min}</td><td>${r.rainfall_mm_h.toFixed(1)}</td>`;
+    pipe_names.forEach(p => {
+      html += `<td>${r.inflow_by_pipe[p].toFixed(2)} / ${r.overflow_by_pipe[p].toFixed(2)} / ${r.utilization_by_pipe[p].toFixed(1)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  tableWrap.innerHTML = html;
+}
+
+document.getElementById('loadSampleBtn').onclick = () => {
+  input.value = JSON.stringify(sampleConfig, null, 2);
+  setStatus('已载入内置样例，可直接运行。');
+};
+
+document.getElementById('jsonFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  input.value = text;
+  setStatus(`已加载文件: ${file.name}`);
+});
+
+document.getElementById('runBtn').onclick = async () => {
+  try {
+    const config = JSON.parse(input.value);
+    setStatus('正在模拟...');
+    const res = await fetch('/simulate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(config)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '模拟失败');
+    renderRisk(data.risk_summary);
+    renderTable(data);
+    reportPreview.textContent = data.report_markdown;
+    setStatus('模拟完成。');
+  } catch (err) {
+    setStatus('错误: ' + err.message, false);
+  }
+};
+</script>
+</body>
+</html>

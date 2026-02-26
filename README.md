@@ -1,72 +1,82 @@
 # 城市排水管负载模拟器（暴雨洪涝场景）
 
-这个小程序用于模拟在暴雨过程中，城市不同排水管道的负载率和溢流风险，并支持终端动画展示和自动生成模拟报告文件。
+这是一个可运行的“专业版演示系统”：
+- 支持命令行模拟（CLI）
+- 支持 Web 界面模拟（可上传 JSON 或直接输入数据）
+- 自动生成模拟报告
+- 支持终端动画（CLI）
 
-## 模型说明
+## 一、Web 图形界面（推荐）
 
-- 采用简化理性公式：`Q = 0.278 * C * i * A`
-  - `Q`：入流量（m3/s）
-  - `C`：径流系数
-  - `i`：降雨强度（mm/h）
-  - `A`：汇水面积（km2）
-- 每个时间步（默认 10 分钟）按降雨强度计算汇水区来水，并汇总到对应排水管。
-- 将入流量与管道能力比较，输出：
-  - 管道负载率（%）
-  - 溢流量（m3/s）
+### Linux / macOS
 
-## 运行
+```bash
+./start_web.sh
+```
 
-### 0) 一键启动（推荐）
+### Windows CMD
+
+```bat
+start_web.bat
+```
+
+启动后在浏览器访问：
+
+- `http://127.0.0.1:8000`
+
+在页面中你可以：
+- 上传配置文件（JSON）
+- 在文本框直接粘贴/修改配置
+- 一键运行模拟并查看风险总览、时序结果、报告预览
+
+## 二、CLI 一键启动（快速测试）
+
+### Linux / macOS
 
 ```bash
 ./start.sh
 ```
 
-该命令会自动使用内置测试数据完成模拟并生成 `simulation_report.md` 报告。
-
-### 0.1) Windows CMD 一键启动（推荐）
-
-在 Windows 的命令提示符（CMD）中进入项目目录后运行：
+### Windows CMD
 
 ```bat
 start.bat
 ```
 
-如果你的系统中命令是 `python3` 而不是 `python`，请把 `start.bat` 里的 `python` 改成 `python3`。
+该命令会自动使用内置测试数据完成模拟并生成 `simulation_report.md` 报告。
 
-### 1) 标准模拟 + 生成报告
+## 三、CLI 详细用法
+
+### 标准模拟 + 生成报告
 
 ```bash
 python3 drainage_simulator.py --config sample_scenario.json --report-file simulation_report.md
 ```
 
-### 2) 动画模拟（终端帧动画）
+### 动画模拟（终端帧动画）
 
 ```bash
 python3 drainage_simulator.py --animate --frame-delay 0.2
 ```
 
-## 输出解读
+## 配置格式说明
 
-程序会按时间序列打印每根管道的：
-- `inflow`：瞬时入流量
-- `overflow`：超出管道能力的流量（潜在内涝风险）
-- `util(%)`：负载率，超过 100% 代表超负荷
+示例见 `sample_scenario.json`，结构如下：
 
-动画模式下会逐时间步刷新显示每条管道负载条形图，`!` 表示超过 100%。
+- `step_minutes`: 时间步长（分钟）
+- `pipes`: 管道数组（`name`, `capacity_m3_s`）
+- `catchments`: 汇水区数组（`name`, `area_km2`, `runoff_coefficient`, `pipe_name`）
+- `rainfall_series_mm_h`: 降雨序列（mm/h）
 
-## 模拟报告文件
+## 模型说明
 
-默认报告文件为 `simulation_report.md`，内容包括：
-- 生成时间、配置来源、时间步数量
-- 各管道设计能力、峰值负载率、峰值溢流、风险等级
-- 全部时序明细表
+采用简化理性公式：`Q = 0.278 * C * i * A`
+- `Q`：入流量（m3/s）
+- `C`：径流系数
+- `i`：降雨强度（mm/h）
+- `A`：汇水面积（km2）
 
-## 测试场景
-
-`sample_scenario.json` 提供了一套可直接运行的测试数据：
-- 3 根管道（主干管、支管、老旧片区管）
-- 4 个汇水分区
-- 12 个时间步的暴雨过程（峰值 96 mm/h）
-
-你可以修改该文件，快速测试不同管径能力、土地硬化程度和降雨过程。
+系统会输出每根管道在每个时刻的：
+- `inflow`：瞬时入流
+- `overflow`：溢流量
+- `util(%)`：负载率
