@@ -24,6 +24,16 @@
 
 该命令会自动使用内置测试数据完成模拟并生成 `simulation_report.md` 报告。
 
+### 0.1) Windows CMD 一键启动（推荐）
+
+在 Windows 的命令提示符（CMD）中进入项目目录后运行：
+
+```bat
+start.bat
+```
+
+如果你的系统中命令是 `python3` 而不是 `python`，请把 `start.bat` 里的 `python` 改成 `python3`。
+
 ### 1) 标准模拟 + 生成报告
 
 ```bash
