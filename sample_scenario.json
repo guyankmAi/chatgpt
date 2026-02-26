@@ -1,5 +1,10 @@
 {
   "step_minutes": 10,
+  "model_params": {
+    "initial_loss_mm": 4.0,
+    "runoff_safety_factor": 1.08,
+    "capacity_factor": 0.92
+  },
   "pipes": [
     {"name": "P1_主干管", "capacity_m3_s": 2.6},
     {"name": "P2_支管", "capacity_m3_s": 1.3},

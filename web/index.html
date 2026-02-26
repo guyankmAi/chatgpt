@@ -58,6 +58,7 @@
       <input type="file" id="jsonFile" accept="application/json" />
       <button class="secondary" id="loadSampleBtn">载入内置样例</button>
       <button id="runBtn">开始模拟</button>
+      <button class="secondary" id="downloadReportBtn">下载报告(.md)</button>
       <button class="warn" id="syncJsonBtn">参数表 → JSON</button>
       <button class="secondary" id="syncTableBtn">JSON → 参数表</button>
     </div>
@@ -74,6 +75,9 @@
         <tr><td>area_km2</td><td>汇水面积</td><td>km²，&gt;0</td><td>建议按分区地形与排水分界精细划分</td></tr>
         <tr><td>runoff_coefficient</td><td>径流系数 C</td><td>0~1</td><td>硬化区可取 0.7~0.95，绿地较低</td></tr>
         <tr><td>rainfall_series_mm_h</td><td>降雨过程线</td><td>mm/h，数组</td><td>应覆盖暴雨起涨-峰值-回落全过程</td></tr>
+        <tr><td>model_params.initial_loss_mm</td><td>初损（截留/洼蓄）</td><td>mm，≥0</td><td>前期下渗与截留可显著降低初期径流</td></tr>
+        <tr><td>model_params.runoff_safety_factor</td><td>来流安全系数</td><td>&gt;0</td><td>用于暴雨不确定性放大（如 1.05~1.20）</td></tr>
+        <tr><td>model_params.capacity_factor</td><td>有效能力系数</td><td>&gt;0</td><td>用于考虑淤积/堵塞/维护状态（如 0.7~1.0）</td></tr>
       </tbody>
     </table>
   </div>
@@ -84,6 +88,11 @@
       <div class="row" style="margin-bottom:6px">
         <label>时间步长(分钟):</label>
         <input id="stepInput" type="number" min="1" value="10" style="width:100px" />
+      </div>
+      <div class="row" style="margin-bottom:6px">
+        <label>初损 initial_loss_mm:</label><input id="initialLossInput" type="number" min="0" step="0.1" value="0" style="width:110px" />
+        <label>来流安全系数 runoff_safety_factor:</label><input id="runoffSafetyInput" type="number" min="0.1" step="0.01" value="1" style="width:110px" />
+        <label>能力系数 capacity_factor:</label><input id="capacityFactorInput" type="number" min="0.1" step="0.01" value="1" style="width:110px" />
       </div>
 
       <h3>管道参数（pipes）</h3>
@@ -145,7 +154,8 @@ const sampleConfig = {
     {name:"老城区", area_km2:0.30, runoff_coefficient:0.78, pipe_name:"P3_老旧片区管"},
     {name:"公园低洼区", area_km2:0.18, runoff_coefficient:0.55, pipe_name:"P3_老旧片区管"}
   ],
-  rainfall_series_mm_h:[8,12,18,35,55,82,96,72,48,30,16,10]
+  rainfall_series_mm_h:[8,12,18,35,55,82,96,72,48,30,16,10],
+  model_params: {initial_loss_mm: 4.0, runoff_safety_factor: 1.08, capacity_factor: 0.92}
 };
 
 const statusEl = document.getElementById('status');
@@ -213,7 +223,13 @@ function tableToConfig(){
   const rainfall = document.getElementById('rainfallInput').value
     .split(',').map(x => Number(x.trim())).filter(x => !Number.isNaN(x));
 
-  return {step_minutes: step, pipes, catchments, rainfall_series_mm_h: rainfall};
+  const model_params = {
+    initial_loss_mm: Number(document.getElementById('initialLossInput').value),
+    runoff_safety_factor: Number(document.getElementById('runoffSafetyInput').value),
+    capacity_factor: Number(document.getElementById('capacityFactorInput').value),
+  };
+
+  return {step_minutes: step, pipes, catchments, rainfall_series_mm_h: rainfall, model_params};
 }
 
 function configToTable(config){
@@ -223,6 +239,10 @@ function configToTable(config){
   (config.pipes || []).forEach(addPipeRow);
   (config.catchments || []).forEach(addCatchRow);
   document.getElementById('rainfallInput').value = (config.rainfall_series_mm_h || []).join(',');
+  const mp = config.model_params || {};
+  document.getElementById('initialLossInput').value = mp.initial_loss_mm ?? 0;
+  document.getElementById('runoffSafetyInput').value = mp.runoff_safety_factor ?? 1;
+  document.getElementById('capacityFactorInput').value = mp.capacity_factor ?? 1;
 }
 
 function riskClass(level){ return level === '高' ? 'high' : (level === '中' ? 'mid':'low'); }
@@ -239,11 +259,11 @@ function renderRisk(summary){
 
 function renderTable(payload){
   const {pipe_names, results} = payload;
-  let html = '<table><thead><tr><th>时间(min)</th><th>降雨(mm/h)</th>';
+  let html = '<table><thead><tr><th>时间(min)</th><th>降雨(mm/h)</th><th>有效降雨(mm/h)</th>';
   pipe_names.forEach(p => html += `<th>${p}<br>入流/溢流/负载%</th>`);
   html += '</tr></thead><tbody>';
   results.forEach(r => {
-    html += `<tr><td>${r.time_min}</td><td>${r.rainfall_mm_h.toFixed(1)}</td>`;
+    html += `<tr><td>${r.time_min}</td><td>${r.rainfall_mm_h.toFixed(1)}</td><td>${r.effective_rainfall_mm_h.toFixed(1)}</td>`;
     pipe_names.forEach(p => {
       html += `<td>${r.inflow_by_pipe[p].toFixed(2)} / ${r.overflow_by_pipe[p].toFixed(2)} / ${r.utilization_by_pipe[p].toFixed(1)}</td>`;
     });
@@ -256,7 +276,7 @@ function renderTable(payload){
 function renderAnimationFrame(){
   if (!currentResults) return;
   const frame = currentResults.results[animIndex];
-  frameLabel.textContent = `帧 ${animIndex+1}/${currentResults.results.length} | 时间 ${frame.time_min} min | 降雨 ${frame.rainfall_mm_h.toFixed(1)} mm/h`;
+  frameLabel.textContent = `帧 ${animIndex+1}/${currentResults.results.length} | 时间 ${frame.time_min} min | 降雨 ${frame.rainfall_mm_h.toFixed(1)} / 有效 ${frame.effective_rainfall_mm_h.toFixed(1)} mm/h`;
   let html = '';
   currentResults.pipe_names.forEach(name => {
     const util = frame.utilization_by_pipe[name];
@@ -344,6 +364,32 @@ document.getElementById('runBtn').onclick = async () => {
     setStatus('模拟完成。');
   } catch (e) {
     setStatus('错误: ' + e.message, false);
+  }
+};
+
+
+document.getElementById('downloadReportBtn').onclick = async () => {
+  try {
+    const config = JSON.parse(jsonInput.value);
+    const res = await fetch('/download-report', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(config)
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || '下载失败');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'simulation_report.md';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus('报告下载成功。');
+  } catch (e) {
+    setStatus('报告下载失败: ' + e.message, false);
   }
 };
 

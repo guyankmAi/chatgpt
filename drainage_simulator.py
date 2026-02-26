@@ -13,16 +13,12 @@ import time
 
 @dataclass
 class Pipe:
-    """单根排水管参数。"""
-
     name: str
     capacity_m3_s: float
 
 
 @dataclass
 class Catchment:
-    """汇水分区参数。"""
-
     name: str
     area_km2: float
     runoff_coefficient: float
@@ -30,16 +26,26 @@ class Catchment:
 
 
 @dataclass
+class ModelParams:
+    """模型高级参数（可选）。"""
+
+    initial_loss_mm: float = 0.0
+    runoff_safety_factor: float = 1.0
+    capacity_factor: float = 1.0
+
+
+@dataclass
 class SimulationResult:
     time_min: int
     rainfall_mm_h: float
+    effective_rainfall_mm_h: float
     inflow_by_pipe: Dict[str, float]
     overflow_by_pipe: Dict[str, float]
     utilization_by_pipe: Dict[str, float]
 
 
 class DrainageSimulator:
-    """基于简化理性公式的城市排水负载模拟器。"""
+    """基于理性公式的城市排水负载模拟器。"""
 
     def __init__(self, pipes: List[Pipe], catchments: List[Catchment]):
         self.pipes = {pipe.name: pipe for pipe in pipes}
@@ -56,52 +62,77 @@ class DrainageSimulator:
             if pipe.capacity_m3_s <= 0:
                 raise ValueError(f"管道 {pipe.name} 的能力必须大于 0")
 
-        for catchment in self.catchments:
-            if catchment.pipe_name not in self.pipes:
-                raise ValueError(
-                    f"汇水区 {catchment.name} 引用的管道 {catchment.pipe_name} 不存在"
-                )
-            if catchment.area_km2 <= 0:
-                raise ValueError(f"汇水区 {catchment.name} 面积必须大于 0")
-            if not (0 <= catchment.runoff_coefficient <= 1):
-                raise ValueError(
-                    f"汇水区 {catchment.name} 的径流系数必须介于 0~1"
-                )
+        for c in self.catchments:
+            if c.pipe_name not in self.pipes:
+                raise ValueError(f"汇水区 {c.name} 引用的管道 {c.pipe_name} 不存在")
+            if c.area_km2 <= 0:
+                raise ValueError(f"汇水区 {c.name} 面积必须大于 0")
+            if not (0 <= c.runoff_coefficient <= 1):
+                raise ValueError(f"汇水区 {c.name} 的径流系数必须介于 0~1")
 
     @staticmethod
     def runoff_flow_m3_s(rainfall_mm_h: float, area_km2: float, runoff_coeff: float) -> float:
-        """理性公式 Q = 0.278 * C * i * A。"""
         return 0.278 * runoff_coeff * rainfall_mm_h * area_km2
 
+    @staticmethod
+    def _effective_rainfall_series(
+        rainfall_series_mm_h: List[float], step_minutes: int, initial_loss_mm: float
+    ) -> List[float]:
+        """按初损扣减得到有效降雨序列。"""
+        remain = max(0.0, initial_loss_mm)
+        step_hour = step_minutes / 60.0
+        out: List[float] = []
+        for rain in rainfall_series_mm_h:
+            depth = max(0.0, rain) * step_hour
+            deducted = min(remain, depth)
+            remain -= deducted
+            eff_depth = max(0.0, depth - deducted)
+            out.append(eff_depth / step_hour if step_hour > 0 else 0.0)
+        return out
+
     def simulate(
-        self, rainfall_series_mm_h: List[float], step_minutes: int = 10
+        self,
+        rainfall_series_mm_h: List[float],
+        step_minutes: int = 10,
+        model_params: ModelParams | None = None,
     ) -> List[SimulationResult]:
         if step_minutes <= 0:
             raise ValueError("时间步长必须大于 0")
 
+        params = model_params or ModelParams()
+        if params.runoff_safety_factor <= 0:
+            raise ValueError("runoff_safety_factor 必须大于 0")
+        if params.capacity_factor <= 0:
+            raise ValueError("capacity_factor 必须大于 0")
+
+        effective_rain = self._effective_rainfall_series(
+            rainfall_series_mm_h, step_minutes, params.initial_loss_mm
+        )
+
         results: List[SimulationResult] = []
-        for idx, rainfall in enumerate(rainfall_series_mm_h):
+        for idx, rainfall_eff in enumerate(effective_rain):
             inflow = {name: 0.0 for name in self.pipes}
             overflow = {name: 0.0 for name in self.pipes}
             utilization = {name: 0.0 for name in self.pipes}
 
-            for catchment in self.catchments:
+            for c in self.catchments:
                 q = self.runoff_flow_m3_s(
-                    rainfall_mm_h=rainfall,
-                    area_km2=catchment.area_km2,
-                    runoff_coeff=catchment.runoff_coefficient,
+                    rainfall_mm_h=rainfall_eff,
+                    area_km2=c.area_km2,
+                    runoff_coeff=c.runoff_coefficient,
                 )
-                inflow[catchment.pipe_name] += q
+                inflow[c.pipe_name] += q * params.runoff_safety_factor
 
             for pipe_name, q_in in inflow.items():
-                cap = self.pipes[pipe_name].capacity_m3_s
+                cap = self.pipes[pipe_name].capacity_m3_s * params.capacity_factor
                 overflow[pipe_name] = max(0.0, q_in - cap)
                 utilization[pipe_name] = q_in / cap * 100
 
             results.append(
                 SimulationResult(
                     time_min=idx * step_minutes,
-                    rainfall_mm_h=rainfall,
+                    rainfall_mm_h=rainfall_series_mm_h[idx],
+                    effective_rainfall_mm_h=rainfall_eff,
                     inflow_by_pipe=inflow,
                     overflow_by_pipe=overflow,
                     utilization_by_pipe=utilization,
@@ -111,7 +142,7 @@ class DrainageSimulator:
         return results
 
 
-def load_config(path: str) -> tuple[List[Pipe], List[Catchment], List[float], int]:
+def load_config(path: str) -> tuple[List[Pipe], List[Catchment], List[float], int, ModelParams]:
     with open(path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
@@ -119,7 +150,8 @@ def load_config(path: str) -> tuple[List[Pipe], List[Catchment], List[float], in
     catchments = [Catchment(**c) for c in config["catchments"]]
     rainfall = config["rainfall_series_mm_h"]
     step = config.get("step_minutes", 10)
-    return pipes, catchments, rainfall, step
+    params = ModelParams(**config.get("model_params", {}))
+    return pipes, catchments, rainfall, step, params
 
 
 def utilization_bar(utilization_pct: float, width: int = 24) -> str:
@@ -129,25 +161,21 @@ def utilization_bar(utilization_pct: float, width: int = 24) -> str:
     return f"[{'#' * filled}{'.' * (width - filled)}]{over}"
 
 
-def print_animation(
-    results: List[SimulationResult], pipe_names: List[str], frame_delay: float = 0.4
-) -> None:
+def print_animation(results: List[SimulationResult], pipe_names: List[str], frame_delay: float = 0.4) -> None:
     print("\n=== 暴雨排水动画模拟（终端帧动画）===")
-    for result in results:
+    for r in results:
         print("\033[2J\033[H", end="")
         print(
-            f"时间: {result.time_min:>3} min | 降雨强度: {result.rainfall_mm_h:>5.1f} mm/h"
+            f"时间: {r.time_min:>3} min | 原始降雨: {r.rainfall_mm_h:>5.1f} mm/h | 有效降雨: {r.effective_rainfall_mm_h:>5.1f} mm/h"
         )
-        print("-" * 90)
-        for pipe_name in pipe_names:
-            inflow = result.inflow_by_pipe[pipe_name]
-            overflow = result.overflow_by_pipe[pipe_name]
-            util = result.utilization_by_pipe[pipe_name]
-            bar = utilization_bar(util)
+        print("-" * 100)
+        for name in pipe_names:
+            inflow = r.inflow_by_pipe[name]
+            overflow = r.overflow_by_pipe[name]
+            util = r.utilization_by_pipe[name]
             status = "超负荷" if util > 100 else "正常"
             print(
-                f"{pipe_name:<12} | 入流 {inflow:>6.2f} m3/s | 溢流 {overflow:>6.2f} m3/s "
-                f"| 负载 {util:>6.1f}% {bar} {status}"
+                f"{name:<12} | 入流 {inflow:>6.2f} m3/s | 溢流 {overflow:>6.2f} m3/s | 负载 {util:>6.1f}% {utilization_bar(util)} {status}"
             )
         time.sleep(frame_delay)
     print("\n动画播放结束。")
@@ -156,27 +184,18 @@ def print_animation(
 def summarize(results: List[SimulationResult], pipe_names: List[str]) -> str:
     lines = []
     header = (
-        "time(min) | rain(mm/h) | "
+        "time(min) | rain(mm/h) | eff_rain(mm/h) | "
         + " | ".join([f"{n}:inflow/overflow/util(%)" for n in pipe_names])
     )
     lines.append(header)
     lines.append("-" * len(header))
-
     for r in results:
-        row = [f"{r.time_min:>8}", f"{r.rainfall_mm_h:>10.1f}"]
+        row = [f"{r.time_min:>8}", f"{r.rainfall_mm_h:>10.1f}", f"{r.effective_rainfall_mm_h:>13.1f}"]
         for name in pipe_names:
             row.append(
                 f"{r.inflow_by_pipe[name]:>5.2f}/{r.overflow_by_pipe[name]:>5.2f}/{r.utilization_by_pipe[name]:>6.1f}"
             )
         lines.append(" | ".join(row))
-
-    peak_overflow = {
-        name: max(item.overflow_by_pipe[name] for item in results) for name in pipe_names
-    }
-    lines.append("\n峰值溢流量(m3/s):")
-    for name in pipe_names:
-        lines.append(f"- {name}: {peak_overflow[name]:.2f}")
-
     return "\n".join(lines)
 
 
@@ -185,29 +204,28 @@ def generate_report(
     config_path: str,
     simulator: DrainageSimulator,
     results: List[SimulationResult],
+    model_params: ModelParams,
 ) -> None:
     pipe_names = list(simulator.pipes.keys())
-    peak_overflow = {
-        name: max(item.overflow_by_pipe[name] for item in results) for name in pipe_names
-    }
-    peak_util = {
-        name: max(item.utilization_by_pipe[name] for item in results) for name in pipe_names
-    }
+    peak_overflow = {n: max(x.overflow_by_pipe[n] for x in results) for n in pipe_names}
+    peak_util = {n: max(x.utilization_by_pipe[n] for x in results) for n in pipe_names}
 
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("# 城市排水暴雨模拟报告\n\n")
         f.write(f"- 生成时间: {datetime.now().isoformat(timespec='seconds')}\n")
         f.write(f"- 配置文件: {config_path}\n")
-        f.write(f"- 时间步数量: {len(results)}\n\n")
+        f.write(f"- 时间步数量: {len(results)}\n")
+        f.write(
+            f"- 模型参数: initial_loss_mm={model_params.initial_loss_mm}, runoff_safety_factor={model_params.runoff_safety_factor}, capacity_factor={model_params.capacity_factor}\n\n"
+        )
 
         f.write("## 管道风险总览\n\n")
         f.write("| 管道 | 设计能力(m3/s) | 峰值负载率(%) | 峰值溢流(m3/s) | 风险等级 |\n")
         f.write("|---|---:|---:|---:|---|\n")
         for name in pipe_names:
-            capacity = simulator.pipes[name].capacity_m3_s
             risk = "高" if peak_util[name] > 150 else ("中" if peak_util[name] > 100 else "低")
             f.write(
-                f"| {name} | {capacity:.2f} | {peak_util[name]:.1f} | {peak_overflow[name]:.2f} | {risk} |\n"
+                f"| {name} | {simulator.pipes[name].capacity_m3_s:.2f} | {peak_util[name]:.1f} | {peak_overflow[name]:.2f} | {risk} |\n"
             )
 
         f.write("\n## 时序明细\n\n")
@@ -217,36 +235,19 @@ def generate_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="城市排水管网暴雨洪涝负载模拟")
-    parser.add_argument(
-        "--config",
-        default="sample_scenario.json",
-        help="配置文件路径(JSON)，默认 sample_scenario.json",
-    )
-    parser.add_argument(
-        "--animate",
-        action="store_true",
-        help="启用终端动画模拟展示",
-    )
-    parser.add_argument(
-        "--frame-delay",
-        type=float,
-        default=0.4,
-        help="动画每帧间隔秒数，默认 0.4",
-    )
-    parser.add_argument(
-        "--report-file",
-        default="simulation_report.md",
-        help="模拟报告输出文件路径，默认 simulation_report.md",
-    )
+    parser.add_argument("--config", default="sample_scenario.json")
+    parser.add_argument("--animate", action="store_true")
+    parser.add_argument("--frame-delay", type=float, default=0.4)
+    parser.add_argument("--report-file", default="simulation_report.md")
     args = parser.parse_args()
 
-    pipes, catchments, rainfall, step = load_config(args.config)
+    pipes, catchments, rainfall, step, params = load_config(args.config)
     simulator = DrainageSimulator(pipes, catchments)
-    results = simulator.simulate(rainfall, step_minutes=step)
+    results = simulator.simulate(rainfall, step_minutes=step, model_params=params)
     pipe_names = list(simulator.pipes.keys())
 
     print(summarize(results, pipe_names))
-    generate_report(args.report_file, args.config, simulator, results)
+    generate_report(args.report_file, args.config, simulator, results, model_params=params)
     print(f"\n模拟报告已生成: {args.report_file}")
 
     if args.animate:

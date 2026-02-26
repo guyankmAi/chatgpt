@@ -10,23 +10,26 @@ from typing import Any, Dict, List
 import argparse
 import json
 
-from drainage_simulator import Catchment, DrainageSimulator, Pipe, SimulationResult
+from drainage_simulator import Catchment, DrainageSimulator, ModelParams, Pipe, SimulationResult
 
 
-def build_report_markdown(simulator: DrainageSimulator, results: List[SimulationResult]) -> str:
+def build_report_markdown(
+    simulator: DrainageSimulator, results: List[SimulationResult], model_params: ModelParams
+) -> str:
     pipe_names = list(simulator.pipes.keys())
-    peak_overflow = {
-        name: max(item.overflow_by_pipe[name] for item in results) for name in pipe_names
-    }
-    peak_util = {
-        name: max(item.utilization_by_pipe[name] for item in results) for name in pipe_names
-    }
+    peak_overflow = {n: max(item.overflow_by_pipe[n] for item in results) for n in pipe_names}
+    peak_util = {n: max(item.utilization_by_pipe[n] for item in results) for n in pipe_names}
 
     lines = [
         "# 城市排水暴雨模拟报告",
         "",
         f"- 生成时间: {datetime.now().isoformat(timespec='seconds')}",
         f"- 时间步数量: {len(results)}",
+        (
+            f"- 模型参数: initial_loss_mm={model_params.initial_loss_mm}, "
+            f"runoff_safety_factor={model_params.runoff_safety_factor}, "
+            f"capacity_factor={model_params.capacity_factor}"
+        ),
         "",
         "## 管道风险总览",
         "",
@@ -48,9 +51,10 @@ def run_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
     catchments = [Catchment(**item) for item in config["catchments"]]
     rainfall = config["rainfall_series_mm_h"]
     step = int(config.get("step_minutes", 10))
+    model_params = ModelParams(**config.get("model_params", {}))
 
     simulator = DrainageSimulator(pipes, catchments)
-    results = simulator.simulate(rainfall, step_minutes=step)
+    results = simulator.simulate(rainfall, step_minutes=step, model_params=model_params)
 
     pipe_names = list(simulator.pipes.keys())
     risk_summary = []
@@ -72,6 +76,7 @@ def run_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         {
             "time_min": r.time_min,
             "rainfall_mm_h": r.rainfall_mm_h,
+            "effective_rainfall_mm_h": r.effective_rainfall_mm_h,
             "inflow_by_pipe": r.inflow_by_pipe,
             "overflow_by_pipe": r.overflow_by_pipe,
             "utilization_by_pipe": r.utilization_by_pipe,
@@ -79,11 +84,13 @@ def run_simulation(config: Dict[str, Any]) -> Dict[str, Any]:
         for r in results
     ]
 
+    report_markdown = build_report_markdown(simulator, results, model_params)
     return {
         "pipe_names": pipe_names,
         "results": serial_results,
         "risk_summary": risk_summary,
-        "report_markdown": build_report_markdown(simulator, results),
+        "model_params": model_params.__dict__,
+        "report_markdown": report_markdown,
     }
 
 
@@ -110,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/simulate":
+        if self.path not in ("/simulate", "/download-report"):
             self._send_json({"error": "Not Found"}, code=404)
             return
 
@@ -119,6 +126,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(raw.decode("utf-8"))
             result = run_simulation(payload)
+
+            if self.path == "/download-report":
+                body = result["report_markdown"].encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="simulation_report.md"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
             self._send_json(result)
         except Exception as exc:  # noqa: BLE001
             self._send_json({"error": str(exc)}, code=400)
